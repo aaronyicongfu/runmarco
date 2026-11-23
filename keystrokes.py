@@ -2,7 +2,7 @@
 """
 
 My preferred usage:
-    python3 keystrkes.py "cmd+v > ctrl+tab > return" -r 10 -d 1.0
+    python3 keystrokes.py "cmd+v > ctrl+tab > return" -r 10 -d 1.0
 
 Run a series of keystrokes on macOS. No third-party packages needed
 (uses the built-in `osascript` / System Events).
@@ -12,6 +12,7 @@ Usage examples:
     python3 keystrokes.py "ctrl+tab > cmd+v"    # custom sequence
     python3 keystrokes.py "ctrl+tab > cmd+v" -r 5 -d 0.3
     python3 keystrokes.py "cmd+a > cmd+c > right" --dry-run
+    python3 keystrokes.py "type:hello world > return > type:abc"
 
 Sequence syntax:
     Steps are separated by ">" (or "->"). Each step is modifiers + key joined by "+".
@@ -20,11 +21,17 @@ Sequence syntax:
           tab, return, enter, space, esc, delete, left, right, up, down,
           home, end, pageup, pagedown, f1..f12
 
+    Typing text:
+          type:<text>   types the text literally, e.g.  type:hello world
+          Wrap in quotes to keep leading/trailing spaces:  type:" hi "
+          Use \\> for a literal ">" (and avoid "->" in text, or write "-\\>").
+
 First run: macOS will ask to grant Accessibility permission to your terminal
 (System Settings > Privacy & Security > Accessibility). Enable it, then re-run.
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -74,8 +81,30 @@ KEY_CODES = {
 }
 
 
+def split_steps(sequence: str) -> list[str]:
+    """Split on '>' or '->' unless escaped as '\\>'."""
+    parts = re.split(r"(?<!\\)(?:->|>)", sequence)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def applescript_string(text: str) -> str:
+    """Escape text for use inside an AppleScript string literal."""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def parse_step(step: str) -> str:
-    """Convert one step like 'ctrl+tab' into an AppleScript command line."""
+    """Convert one step like 'ctrl+tab' or 'type:hello' into an AppleScript command line."""
+    # Literal text: type:<text>
+    if step.lower().startswith("type:"):
+        text = step[5:]
+        # Optional surrounding quotes preserve leading/trailing spaces
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+            text = text[1:-1]
+        text = text.replace("\\>", ">")
+        if not text:
+            raise ValueError(f"Nothing to type in step: {step!r}")
+        return f'keystroke "{applescript_string(text)}"'
+
     parts = [p.strip().lower() for p in step.split("+") if p.strip()]
     if not parts:
         raise ValueError(f"Empty step: {step!r}")
@@ -91,13 +120,12 @@ def parse_step(step: str) -> str:
     if key in KEY_CODES:
         return f"key code {KEY_CODES[key]}{using}"
     if len(key) == 1:
-        escaped = key.replace("\\", "\\\\").replace('"', '\\"')
-        return f'keystroke "{escaped}"{using}'
+        return f'keystroke "{applescript_string(key)}"{using}'
     raise ValueError(f"Unknown key {key!r} in step {step!r}")
 
 
 def build_applescript(sequence: str, repeat: int, delay: float) -> str:
-    steps = [s.strip() for s in sequence.replace("->", ">").split(">") if s.strip()]
+    steps = split_steps(sequence)
     if not steps:
         raise ValueError("No steps found in sequence.")
     commands = [parse_step(s) for s in steps]
