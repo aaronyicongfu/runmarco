@@ -2,7 +2,7 @@
 """
 
 My preferred usage:
-    python3 keystrokes.py "cmd+v > ctrl+tab > return" -r 10 -d 1.0
+    python3 keystrokes.py "cmd+v > return > ctrl+tab" -r 10 -d 0.3
 
 Run a series of keystrokes on macOS. No third-party packages needed
 (uses the built-in `osascript` / System Events).
